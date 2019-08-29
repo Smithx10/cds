@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	cfg    *cdsclient.Config
-	client cdsclient.Interface
-	root   *cobra.Command
+	cfg            *cdsclient.Config
+	configFilePath string
+	client         cdsclient.Interface
+	root           *cobra.Command
 )
 
 func main() {
@@ -24,6 +25,7 @@ func main() {
 		action(),
 		login(),
 		application(),
+		contexts(),
 		environment(),
 		events(),
 		pipeline(),
@@ -57,7 +59,7 @@ func rootFromSubCommands(cmds []*cobra.Command) *cobra.Command {
 
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		var err error
-		cfg, err = loadConfig(cmd)
+		configFilePath, cfg, err = loadConfig(cmd)
 
 		if err == nil && cfg != nil {
 			client = cdsclient.New(*cfg)
@@ -97,7 +99,7 @@ Per default, the command line ` + "`cdsctl`" + ` uses your keychain on your os:
 
 You can bypass keychain tools by using environment variables:
 
-	CDS_API_URL="https://instance.cds.api" CDS_USER="username" CDS_TOKEN="yourtoken" cdsctl [command]
+	CDS_API_URL="https://instance.cds.api" CDS_USER="username" CDS_SESSION_TOKEN="yourtoken" cdsctl [command]
 
 
 Want to debug something? You can use ` + "`CDS_VERBOSE`" + ` environment variable.
