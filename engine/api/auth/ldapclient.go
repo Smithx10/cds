@@ -135,6 +135,10 @@ func shoudRetry(err error) bool {
 		log.Info("LDAP> Retry")
 		return true
 	}
+	if ldapErr.ResultCode == ldap.LDAPResultBusy {
+		log.Info("LDAP> Retry")
+		return true
+	}
 	return false
 }
 
@@ -302,8 +306,8 @@ func (c *LDAPClient) Search(filter string, attributes ...string) ([]Entry, error
 
 func (c *LDAPClient) searchAndInsertOrUpdateUser(db gorp.SqlExecutor, username string) (*sdk.User, error) {
 	// Search user
-	search := fmt.Sprintf("(uid=%s)", username)
-	entry, errSearch := c.Search(search, "uid", "cn", "ou", "givenName", "sn", "mail")
+	search := fmt.Sprintf("(sAMAccountName=%s)", username)
+	entry, errSearch := c.Search(search, "sAMAccountName", "cn", "ou", "givenName", "sn", "mail")
 	if errSearch != nil && errSearch.Error() != errUserNotFound {
 		log.Warning("LDAP> Search error %s: %s", search, errSearch)
 		return nil, errSearch
@@ -382,7 +386,7 @@ func (c *LDAPClient) searchAndInsertOrUpdateUser(db gorp.SqlExecutor, username s
 //Authentify check username and password
 func (c *LDAPClient) Authentify(username, password string) (bool, error) {
 	// Search user
-	r, err := c.Search("(&(uid=" + username + "))")
+	r, err := c.Search("(&(sAMAccountName=" + username + "))")
 	if err != nil {
 		return false, nil
 	}
