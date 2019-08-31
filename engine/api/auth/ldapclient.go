@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/go-gorp/gorp"
 	"gopkg.in/ldap.v2"
@@ -43,11 +44,12 @@ type LDAPDriver interface {
 
 //LDAPClient enbeddes the LDAP connecion
 type LDAPClient struct {
-	store  sessionstore.Store
-	conn   *ldap.Conn
-	conf   LDAPConfig
-	local  *LocalClient
-	dbFunc func() *gorp.DbMap
+	store    sessionstore.Store
+	conn     *ldap.Conn
+	conf     LDAPConfig
+	local    *LocalClient
+	dbFunc   func() *gorp.DbMap
+	bindLock sync.Mutex
 }
 
 //Entry represents a LDAP entity
@@ -96,7 +98,7 @@ func (c *LDAPClient) openLDAP(options interface{}) error {
 		log.Info("Auth> Connecting to LDAP server")
 		c.conn, err = ldap.DialTLS("tcp", address, &tls.Config{
 			ServerName:         c.conf.Host,
-			InsecureSkipVerify: false,
+			InsecureSkipVerify: true,
 		})
 		if err != nil {
 			log.Error("Auth> Cannot dial TLS (InsecureSkipVerify=false) %s : %s", address, err)
@@ -107,7 +109,7 @@ func (c *LDAPClient) openLDAP(options interface{}) error {
 	if c.conf.BindDN != "" {
 		log.Info("LDAP> Bind user %s", c.conf.BindDN)
 		if err := c.conn.Bind(c.conf.BindDN, c.conf.BindPwd); err != nil {
-			if shoudRetry(err) {
+			if shouldRetry(err) {
 				if err := c.openLDAP(c.conf); err != nil {
 					return err
 				}
@@ -123,7 +125,7 @@ func (c *LDAPClient) openLDAP(options interface{}) error {
 	return nil
 }
 
-func shoudRetry(err error) bool {
+func shouldRetry(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -212,7 +214,7 @@ func (c *LDAPClient) Bind(username, password string) error {
 	log.Debug("LDAP> Bind user %s", bindRequest)
 
 	if err := c.conn.Bind(bindRequest, password); err != nil {
-		if !shoudRetry(err) {
+		if !shouldRetry(err) {
 			return err
 		}
 		if err := c.openLDAP(c.conf); err != nil {
@@ -230,7 +232,7 @@ func (c *LDAPClient) Bind(username, password string) error {
 func (c *LDAPClient) BindDN(dn, password string) error {
 	log.Debug("LDAP> Bind DN %s", dn)
 	if err := c.conn.Bind(dn, password); err != nil {
-		if !shoudRetry(err) {
+		if !shouldRetry(err) {
 			return err
 		}
 		if err := c.openLDAP(c.conf); err != nil {
@@ -247,16 +249,16 @@ func (c *LDAPClient) BindDN(dn, password string) error {
 func (c *LDAPClient) Search(filter string, attributes ...string) ([]Entry, error) {
 	attr := append(attributes, "dn")
 
+	c.bindLock.Lock()
+	defer c.bindLock.Unlock()
+
 	if c.conf.BindDN != "" {
 		log.Debug("LDAP> Bind user %s", c.conf.BindDN)
 		if err := c.conn.Bind(c.conf.BindDN, c.conf.BindPwd); err != nil {
-			if !shoudRetry(err) {
+			if !shouldRetry(err) {
 				return nil, err
 			}
 			if err := c.openLDAP(c.conf); err != nil {
-				return nil, err
-			}
-			if err := c.conn.Bind(c.conf.BindDN, c.conf.BindPwd); err != nil {
 				return nil, err
 			}
 		}
@@ -273,7 +275,7 @@ func (c *LDAPClient) Search(filter string, attributes ...string) ([]Entry, error
 
 	sr, err := c.conn.Search(searchRequest)
 	if err != nil {
-		if !shoudRetry(err) {
+		if !shouldRetry(err) {
 			return nil, err
 		}
 		if err := c.openLDAP(c.conf); err != nil {
